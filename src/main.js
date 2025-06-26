@@ -73,7 +73,7 @@ loader.load('models/city.glb', (gltf) => {
 
   if (focusPoint) {
     const fontLoader = new FontLoader();  // Text Geometry
-    fontLoader.load('/fonts/helvetiker_regular.typeface.json', (font) => {
+    fontLoader.load('fonts/helvetiker_regular.typeface.json', (font) => {
       const text = "DAILY PLANET";
       const radius = 10;
       const pivot = new THREE.Object3D();
