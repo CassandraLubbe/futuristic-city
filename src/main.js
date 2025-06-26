@@ -47,7 +47,7 @@ let dronesRunning = true;
 
 // City Model Load
 const loader = new GLTFLoader();
-loader.load('/models/city.glb', (gltf) => {
+loader.load('models/city.glb', (gltf) => {
   city = gltf.scene;
 
   city.traverse((child) => {
@@ -200,7 +200,7 @@ const droneOrbitRadius = {
 async function loadDrones() {
   for (let i = 1; i <= 4; i++) {
     const name = `drone${i}`;
-    const model = await loadModel(`/models/${name}.glb`);
+    const model = await loadModel(`models/${name}.glb`);
     model.name = name;
 
     const basePosition = dronePositions[name] || new THREE.Vector3(i * 10, 80, i * 10);
@@ -467,7 +467,7 @@ carSpeed['car4'] = 0.0005; // adjust speed if needed
 async function loadCars() {
   for (let i = 1; i <= 4; i++) {
     const name = `car${i}`;
-    const model = await loadModel(`/models/${name}.glb`);
+    const model = await loadModel(`models/${name}.glb`);
     model.name = name;
 
     const bbox = new THREE.Box3().setFromObject(model);
