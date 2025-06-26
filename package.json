@@ -16,7 +16,7 @@
     "gsap": "^3.13.0",
     "three": "^0.177.0"
   },
-  "homepage": "https://YOUR_USERNAME.github.io/REPO_NAME",
+  "homepage": "https://cassandralubbe.github.io/futuristic-city",
   "scripts": {
   "dev": "vite",
   "build": "vite build",
