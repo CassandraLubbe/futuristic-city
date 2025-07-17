@@ -22,6 +22,9 @@ camera.position.set(0, 200, 300);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+// Solid color background:
+renderer.setClearColor(0xffffff); // white
+
 
 // Camera Controls
 // Allows users to orbit, zoom, and pan using mouse
@@ -36,6 +39,9 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 1);
 dirLight.position.set(0, 300, 0);
 scene.add(dirLight);
 //scene.add(new THREE.DirectionalLightHelper(dirLight, 10));
+const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
+scene.add(hemisphereLight);
+
 
 // Grid and Axes Helpers (Visual Aids)
 // scene.add(new THREE.GridHelper(500, 50));
