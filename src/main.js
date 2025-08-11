@@ -10,9 +10,34 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 
 // Scene Setup
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+
+// Skybox setup
+let dayBox, nightBox;
+
+const rgbeLoader = new RGBELoader();
+
+rgbeLoader.load('textures/cubemap/skybox.hdr', (texture) => {
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  dayBox = texture;
+  if (isDay) {
+    scene.background = dayBox;
+    scene.environment = dayBox;
+  }
+});
+
+rgbeLoader.load('textures/cubemap/nightbox2.hdr', (texture) => {
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  nightBox = texture;
+  if (!isDay) {
+    scene.background = nightBox;
+    scene.environment = nightBox;
+  }
+});
 
 // Camera Setup
 const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 5000);
@@ -21,10 +46,9 @@ camera.position.set(0, 200, 300);
 // Renderer Setup
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
-// Solid color background:
-renderer.setClearColor(0xffffff); // white
-
 
 // Camera Controls
 // Allows users to orbit, zoom, and pan using mouse
@@ -33,23 +57,46 @@ controls.enableDamping = true;
 controls.minDistance = 10;
 controls.maxDistance = 4000;
 
-// Lighting Setup
-scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-dirLight.position.set(0, 300, 0);
-scene.add(dirLight);
-//scene.add(new THREE.DirectionalLightHelper(dirLight, 10));
-const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
-scene.add(hemisphereLight);
+// Sunlight Setup
+const sunlight = new THREE.DirectionalLight(0xffffff, 1);
+sunlight.position.set(200, 400, 50);  // position inside the world space
+sunlight.target.position.set(0, 0, 0);
+sunlight.castShadow = true;
 
+// Fine-tune shadows
+sunlight.shadow.mapSize.set(2048, 2048);
+sunlight.shadow.camera.near = 0.5;
+sunlight.shadow.camera.far = 600;
+const d = 300;
+sunlight.shadow.camera.left = -d;
+sunlight.shadow.camera.right = d;
+sunlight.shadow.camera.top = d;
+sunlight.shadow.camera.bottom = -d;
+
+scene.add(sunlight);
+
+// Ambient light for general environment light
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(ambientLight);
+
+// Guide to see light source during development
+const lightHelper = new THREE.DirectionalLightHelper(sunlight, 5);
+scene.add(lightHelper);
+
+// Camera helper
+const cameraHelper = new THREE.CameraHelper(sunlight.shadow.camera);
+scene.add(cameraHelper);
 
 // Grid and Axes Helpers (Visual Aids)
 // scene.add(new THREE.GridHelper(500, 50));
 // scene.add(new THREE.AxesHelper(500));
 
+
+
 let city = null;  // Global city reference
 let carsRunning = true;
 let dronesRunning = true;
+let isDay = true;
 
 // City Model Load
 const loader = new GLTFLoader();
@@ -57,7 +104,11 @@ loader.load('models/city.glb', (gltf) => {
   city = gltf.scene;
 
   city.traverse((child) => {
-    if (child.isMesh) child.material.side = THREE.DoubleSide;
+    if (child.isMesh) {
+      child.material.side = THREE.DoubleSide;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
   });
 
   // Center the city
@@ -577,4 +628,32 @@ document.getElementById('toggleCars').addEventListener('click', () => {
 document.getElementById('toggleDrones').addEventListener('click', () => {
   dronesRunning = !dronesRunning;
   document.getElementById('toggleDrones').textContent = dronesRunning ? 'Stop Drones' : 'Start Drones';
+});
+
+document.getElementById('toggleDayNight').addEventListener('click', () => {
+  isDay = !isDay;
+
+  if (isDay) {
+    // Day mode
+    sunlight.intensity = 1;
+    sunlight.color.set(0xffffff);
+    ambientLight.intensity = 0.5;
+
+    if (dayBox) {
+      scene.background = dayBox;
+      scene.environment = dayBox;
+    }
+    document.getElementById('toggleDayNight').textContent = 'Night Mode';
+  } else {
+    // Night mode
+    sunlight.intensity = 1;
+    sunlight.color.set(0x666699);
+    ambientLight.intensity = 0.5;
+
+    if (nightBox) {
+      scene.background = nightBox;
+      scene.environment = nightBox;
+    }
+    document.getElementById('toggleDayNight').textContent = 'Day Mode';
+  }
 });
