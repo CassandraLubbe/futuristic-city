@@ -1,9 +1,9 @@
 /*
   Cassandra Lubbe (57170304)
-  COS3712 - Assessment 02 Part 1
+  COS3712 - Assessment 02 Part 2
 
   Please see Documentation.pdf for a fuller understanding of the current project and it's related parts.
-  June 2026
+  August 2025
 */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -11,6 +11,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 // Scene Setup
 const scene = new THREE.Scene();
@@ -30,7 +32,8 @@ rgbeLoader.load('textures/cubemap/skybox.hdr', (texture) => {
   }
 });
 
-rgbeLoader.load('textures/cubemap/nightbox2.hdr', (texture) => {
+const exrLoader = new EXRLoader();
+exrLoader.load('textures/cubemap/nightbox2.exr', (texture) => {
   texture.mapping = THREE.EquirectangularReflectionMapping;
   nightBox = texture;
   if (!isDay) {
@@ -98,9 +101,14 @@ let carsRunning = true;
 let dronesRunning = true;
 let isDay = true;
 
+// DRACO compression
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('/draco/');
+
 // City Model Load
 const loader = new GLTFLoader();
-loader.load('models/city.glb', (gltf) => {
+loader.setDRACOLoader(dracoLoader);
+loader.load('models/city1.glb', (gltf) => {
   city = gltf.scene;
 
   city.traverse((child) => {
@@ -141,12 +149,12 @@ loader.load('models/city.glb', (gltf) => {
       focusPoint.getWorldPosition(center);
 
       // Apply an offset — adjust these values as needed
-      const offset = new THREE.Vector3(0, 26, -30); 
+      const offset = new THREE.Vector3(0, 20, -30); 
       center.add(offset);
 
       pivot.position.copy(center);
 
-      const lettersOnly = text.replace(/\s/g, '');
+      const lettersOnly = text.replace(/\s/g, ' ');
       const angleStep = (Math.PI * 2) / lettersOnly.length;
 
       let letterIndex = 0;
@@ -164,10 +172,17 @@ loader.load('models/city.glb', (gltf) => {
         });
         geometry.center();
 
-        const material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        const material = new THREE.MeshStandardMaterial({
+          color: 0xffff00,
+          emissive: 0xffff00,
+          emissiveIntensity: 2,
+          metalness: 0.5,
+          roughness: 0.2,
+          side: THREE.DoubleSide,
+        });
+        
         const letter = new THREE.Mesh(geometry, material);
         letter.scale.z = 0.01; // compress thickness by factor 10
-
 
         // Calculate angle around circle
         const angle = letterIndex * angleStep;
@@ -234,7 +249,7 @@ const dronePositions = {
   drone4: new THREE.Vector3(90, 150, -80),
 };
 
-// Geometry marker for drones (Visual Aid)
+//Geometry marker for drones (Visual Aid)
 // for (const [name, pos] of Object.entries(dronePositions)) {
 //   const marker = new THREE.Mesh(
 //     new THREE.SphereGeometry(0.5, 8, 8),
@@ -260,19 +275,32 @@ async function loadDrones() {
     const model = await loadModel(`models/${name}.glb`);
     model.name = name;
 
-    const basePosition = dronePositions[name] || new THREE.Vector3(i * 10, 80, i * 10);
+    // Reset model transformations
+    model.position.set(0, 0, 0);
+    model.rotation.set(0, 0, 0);
+    model.scale.set(1, 1, 1);
 
+    // Calculate and set mesh centers
     const bbox = new THREE.Box3().setFromObject(model);
     const center = bbox.getCenter(new THREE.Vector3());
-    model.position.sub(center); // center the drone mesh
+    model.position.sub(center);
 
+    // Create pivot for drone orbiting
     const pivot = new THREE.Object3D();
 
-    const radius = droneOrbitRadius[name] || 50;
-    model.position.set(radius, 0, 0);
-    pivot.add(model);
+    // Get base position from markers
+    const basePosition = dronePositions[name];
+    pivot.position.copy(basePosition);
 
-    pivot.position.copy(basePosition); // Place pivot in scene
+    // Set radius
+    const radius = droneOrbitRadius[name] || 50;
+    const offsetHolder = new THREE.Object3D();
+    offsetHolder.position.set(radius, 0, 0);
+
+    // Add offset holder and pivot
+    offsetHolder.add(model);
+    pivot.add(offsetHolder);
+
     scene.add(pivot);
 
     drones[name] = pivot;
@@ -572,7 +600,8 @@ function animate() {
       if (dronesRunning) {
         pivot.rotation.y += 0.01;
       }
-    } else {
+    } 
+    else {
       pivot.rotation.y += 0.01;  // drone3 & 4 always orbit
     }
   });
