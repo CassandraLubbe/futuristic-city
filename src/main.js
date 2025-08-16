@@ -12,7 +12,6 @@ import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 // Scene Setup
 const scene = new THREE.Scene();
@@ -94,132 +93,108 @@ scene.add(cameraHelper);
 // scene.add(new THREE.GridHelper(500, 50));
 // scene.add(new THREE.AxesHelper(500));
 
-
-
 let city = null;  // Global city reference
 let carsRunning = true;
 let dronesRunning = true;
 let isDay = true;
 
-// DRACO compression
-const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('/draco/');
-
-// City Model Load
+// Load city and building models
 const loader = new GLTFLoader();
-loader.setDRACOLoader(dracoLoader);
-loader.load('models/city1.glb', (gltf) => {
-  city = gltf.scene;
 
-  city.traverse((child) => {
-    if (child.isMesh) {
-      child.material.side = THREE.DoubleSide;
-      child.castShadow = true;
-      child.receiveShadow = true;
-    }
-  });
+const modelFiles = [
+  'foundation.glb',
+  'building1.glb',
+  'building2.glb',
+  'building3.glb',
+  'building4.glb',
+  'building5.glb',
+  'apartment1.glb',
+  'apartment2.glb',
+  'apartment3.glb',
+  'bigBen.glb',
+  'chinesebuilding.glb',
+  'cityBillboard.glb',
+  'spaceNeedle.glb',
+  'twinTower.glb',
+  'dailyPlanet.glb',
+  'park1.glb',
+  'park2.glb',
+  'park3.glb'
+];
 
-  // Center the city
-  const box = new THREE.Box3().setFromObject(city);
-  const center = box.getCenter(new THREE.Vector3());
-  city.position.sub(center);
-  city.position.y = -19;
-  city.position.z = 30;
+// load each building model
+modelFiles.forEach(file => {
+  loader.load(`/models/${file}`, (gltf) => {
+    const model = gltf.scene;
 
-  // Find focusPoint and textMesh inside city
-  let focusPoint = null;
-  let textMesh = null;
-
-  city.traverse((obj) => {
-    if (obj.name === 'focusPoint-DailyPlanet') {
-      focusPoint = obj;
-    }
-  });
-
-  if (focusPoint) {
-    const fontLoader = new FontLoader();  // Text Geometry
-    fontLoader.load('fonts/helvetiker_regular.typeface.json', (font) => {
-      const text = "DAILY PLANET";
-      const radius = 10;
-      const pivot = new THREE.Object3D();
-      
-      console.log('Font loaded, creating text...');
-
-      const center = new THREE.Vector3();
-      focusPoint.getWorldPosition(center);
-
-      // Apply an offset — adjust these values as needed
-      const offset = new THREE.Vector3(0, 20, -30); 
-      center.add(offset);
-
-      pivot.position.copy(center);
-
-      const lettersOnly = text.replace(/\s/g, ' ');
-      const angleStep = (Math.PI * 2) / lettersOnly.length;
-
-      let letterIndex = 0;
-
-      for (let i = text.length - 1; i >= 0; i--) {
-        const char = text[i];
-        if (char === ' ') continue;
-
-        const geometry = new TextGeometry(char, {
-          font: font,
-          size: 2.5,
-          height: 0.01,
-          curveSegments: 12,
-          bevelEnabled: false,
-        });
-        geometry.center();
-
-        const material = new THREE.MeshStandardMaterial({
-          color: 0xffff00,
-          emissive: 0xffff00,
-          emissiveIntensity: 2,
-          metalness: 0.5,
-          roughness: 0.2,
-          side: THREE.DoubleSide,
-        });
-        
-        const letter = new THREE.Mesh(geometry, material);
-        letter.scale.z = 0.01; // compress thickness by factor 10
-
-        // Calculate angle around circle
-        const angle = letterIndex * angleStep;
-
-        // Position letter on circle in XZ plane
-        const x = Math.cos(angle) * radius;
-        const z = Math.sin(angle) * radius;
-        letter.position.set(x, 0, z);
-
-        // Orient letter to face outward from center (pivot)
-        letter.lookAt(new THREE.Vector3(0, 0, 0));
-        letter.rotateY(Math.PI);        // Flip so front faces outward, not inward
-
-        pivot.add(letter);
-        letterIndex++;
+    // enable shadows and double-sided
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        child.material.side = THREE.DoubleSide;
       }
-      
-      const material = new THREE.MeshBasicMaterial({
+    });
+
+    scene.add(model);
+
+    // function for Daily Planet model text
+    if (file === 'dailyPlanet.glb') {
+      addDailyPlanetSign(model);
+    }
+  }, undefined, (error) => {
+    console.error('Failed to load: ${file}', error);
+  });
+});
+
+function addDailyPlanetSign(buildingMesh){
+  const fontLoader = new FontLoader();
+  fontLoader.load('/fonts/helvetiker_regular.typeface.json', (font) => {
+    const text = "DAILY PLANET";
+    const radius = 10;
+    const pivot = new THREE.Object3D();
+
+    const center = new THREE.Vector3();
+    buildingMesh.getWorldPosition(center);
+    center.y += 20;
+    center.z -= 30;
+    pivot.position.copy(center);
+
+    const lettersOnly = text.replace(/\s/g, '');
+    const angleStep = (Math.PI * 2) / lettersOnly.length;
+    let letterIndex = 0;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char == ' ') continue;
+
+      const geometry = new TextGeometry(char, {font, size:2.5, height: 0.02});
+      geometry.center();
+
+      const material = new THREE.MeshStandardMaterial({
         color: 0xffff00,
+        emissive: 0xffff00,
+        emissiveIntensity: 2,
+        metalness: 0.5,
+        roughness: 0.2,
         side: THREE.DoubleSide,
       });
 
-      // const debugBox = new THREE.Mesh(
-      //   new THREE.BoxGeometry(2, 2, 2),
-      //   new THREE.MeshBasicMaterial({ color: 0x00ff00 })
-      // );
-      // debugBox.position.copy(center); // same as pivot center
-      // scene.add(debugBox);
-  
-      city.add(pivot);
-      city.userData.textPivot = pivot;
-    });
-  }
-  
-  scene.add(city);
-});
+      const letterMesh = new THREE.Mesh(geometry, material);
+      const angle = letterIndex * angleStep;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      letterMesh.position.set(x, 0, z);
+      letterMesh.lookAt(new THREE.Vector3(0, 0, 0));
+      letterMesh.rotateY(Math.PI);
 
+      pivot.add(letterMesh);
+      letterIndex++;
+    }
+
+    buildingMesh.add(pivot);
+  });
+}
 
 const drones = {};
 const cars = {};
