@@ -12,16 +12,14 @@ import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
-import { texture } from 'three/tsl';
-import { update } from 'three/examples/jsm/libs/tween.module.js';
 
 
-/* ---------------------------------------------------SCENE SETUP------------------------------------------------------------------ */
-// Create scene
+/* ----------------------------------------------------------------SCENE SETUP------------------------------------------------------------------------------- */
+/* ----------------------------------------------------------------Create Scene */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 
-// Skybox setup
+/* ----------------------------------------------------------------Create Skybox and Nightbox */
 let dayBox, nightBox;
 const rgbeLoader = new RGBELoader();
 const exrLoader = new EXRLoader();
@@ -56,25 +54,25 @@ exrLoader.load('textures/cubemap/nightbox2.exr', (texture) => {
   }
 });
 
-// Camera Setup
+/* ------------------------------------------------------------------Camera Setup */
 const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 5000);
 camera.position.set(0, 200, 300);
 
-// Renderer Setup
+/* ------------------------------------------------------------------Renderer Setup */
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// Camera Controls
+/* -------------------------------------------------------------------Camera Setup */
 // Allows users to orbit, zoom, and pan using mouse
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.minDistance = 10;
 controls.maxDistance = 4000;
 
-// Sunlight Setup
+/* --------------------------------------------------------------------Sunlight Setup */
 const sunlight = new THREE.DirectionalLight(0xffffff, 1);
 sunlight.position.set(200, 400, 50);  // position inside the world space
 sunlight.target.position.set(0, 0, 0);
@@ -96,18 +94,6 @@ scene.add(sunlight);
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambientLight);
 
-// Guide to see light source during development
-const lightHelper = new THREE.DirectionalLightHelper(sunlight, 5);
-scene.add(lightHelper);
-
-// Camera helper
-const cameraHelper = new THREE.CameraHelper(sunlight.shadow.camera);
-scene.add(cameraHelper);
-
-// Grid and Axes Helpers (Visual Aids)
-// scene.add(new THREE.GridHelper(500, 50));
-// scene.add(new THREE.AxesHelper(500));
-
 /* -----------------------------------------------------------GLOBAL GROUPS AND FLAGS------------------------------------------------------------------------ */
 let isDay = true;
 const CITY = new THREE.Group();
@@ -124,7 +110,7 @@ const buildingMesh = [];
 const lights = [];
 
 
-/* ---------------------------------TEXTURE MAPPING */
+/* ----------------------------------------------------------TEXTURE MAPPING */
 const textureMap = {
   'brick': {
     map:'textures/brick.jpg',
@@ -149,9 +135,9 @@ const textureMap = {
     normalMap: 'textures/concrete_normal.jpg'},
 };
 
-/* ------------------------------------------MODELS: BUILDINGS PROCESSING WITH OFFESETS, LIGHTS, EMISSIVE GRAB---------------------------------------------- */
+/* ---------------------------------------------------------------------MODELS: BUILDINGS PROCESSING---------------------------------------------------------------- */
 
-/* ------------------------------------------------------------APPLY TEXTURE / NORMAL / ENVMAP MAPPING */
+/* ---------------------------------------------------------------------Apply Texture / Mapping/ EnvMap */
   function applyTextureMapping(model) {
     const textureLoader = new THREE.TextureLoader();
 
@@ -219,7 +205,7 @@ const textureMap = {
     });
   }
 
-/* -----------------------------------------------------------------PROCESS BUILDINGS */
+/* -------------------------------------------------------------------------------Process Buildings */
 function processBuilding(model) {
   model.traverse((child) => {
     if (child.isMesh) {
@@ -236,7 +222,7 @@ function processBuilding(model) {
   });
 }
 
-/* --------------------------------------------------------ADD DAILY PLANET NEON SIGN */
+/* ------------------------------------------------------------------------------Add Daily Planet Neon Sign */
 function addDailyPlanetSign(buildingMesh) {
   return new Promise((resolve, reject) => {
     const focusPoint = buildingMesh.getObjectByName('focusPoint-DailyPlanet');
@@ -316,7 +302,7 @@ function addDailyPlanetSign(buildingMesh) {
   });
 }
 
-/* ----------------------------------------------------LOAD CITY-------------------------------------------------------- */
+/* ---------------------------------------------------------------------------------LOAD CITY--------------------------------------------------------------- */
 const loader = new GLTFLoader();
 
 const modelFiles = [
@@ -344,7 +330,7 @@ const modelFiles = [
 const cityOffset = new THREE.Vector3(0, -18, 30);
 CITY.position.copy(cityOffset);
 
-/* --------------------------------------------LOADING PAGE */
+/* ---------------------------------------------------------------------------Loading Page */
 let modelsLoaded = 0;
 const totalModels = modelFiles.length;
 
@@ -360,7 +346,7 @@ function updateLoadingProcess() {
   }
 }
 
-// Load building models
+/* -------------------------------------------------------------------------Load Models */
 modelFiles.forEach(file => {
   loader.load(`models/${file}`, (gltf) => {
     const model = gltf.scene;
@@ -396,7 +382,7 @@ modelFiles.forEach(file => {
   });
 });
 
-/* ---------------------------SET SHADING-------------------------------- */
+/* ------------------------------------------------------------------------Set Shading */
 const textureCache = {};
 const textureLoader = new THREE.TextureLoader();
 
@@ -443,7 +429,7 @@ function setShading(type) {
         obj.material.dispose();
         obj.material = new THREE.MeshPhongMaterial({
           color: obj.material.color,
-          shininess: 100,
+          shininess: 10,
           specular: 0xffffff,
           emissive: obj.material.emissive ?? 0x000000,
           emissiveIntensity: obj.material.emissiveIntensity ?? 0x000000,
@@ -465,7 +451,7 @@ function setShading(type) {
   });
 }
 
-/* -----------------------------------------------------WINDOW ENVIRONEMNT REFLECTIONS */
+/* ---------------------------------------------------------------------------Window Environment Mapping Setup */
 function updateWindowsEnvMaps() {
   buildingMesh.forEach(mesh => {
     let mat = mesh.material;
@@ -500,7 +486,8 @@ function updateWindowsEnvMaps() {
   });
 }
 
-/* ---------------------------------------DRONES----------------------------------------------- */
+/* -------------------------------------------------------------------------------DRONES------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------------Globals */
 const drones = {};
 const rotatingDrones = [];
 const dronePositions = {
@@ -520,7 +507,7 @@ const droneControlState = {
   drone2: true,
 };
 
-// LOAD DRONES
+/* ----------------------------------------------------------------------------Load Drones */
 async function loadDrones() {
   for (let i = 1; i <= 4; i++) {
     const name = `drone${i}`;
@@ -561,21 +548,21 @@ async function loadDrones() {
   }
 }
 
-// MODEL LOADING - loads GLTF models asynchronously
+/* ---------------------------------------------------------------------------Load Models - Asynchronouysly */
 function loadModel(path) {
   return new Promise((resolve, reject) => {
     loader.load(path, (gltf) => resolve(gltf.scene), undefined, reject);
   });
 }
 
-/* -----------------------------------------CARS---------------------------------------------------- */
+/* ----------------------------------------------------------------------------CARS-------------------------------------------------------------------------------- */
 const cars = {};
 const carMarkers = {};
 const carPaths = {};
 const carProgress = {};
 const carSpeed = {};
 
-/* ---------------------------CAR 1 : PATH------------------------------- */
+/* ---------------------------------------------------------------------------Car 1: Path */
 carPaths['car1'] = new THREE.CatmullRomCurve3([
   new THREE.Vector3(80, 5, 30),  //start of roundabout
   new THREE.Vector3(-10, 5, 30),
@@ -615,7 +602,7 @@ carPaths['car1'] = new THREE.CatmullRomCurve3([
 carProgress['car1'] = 0;
 carSpeed['car1'] = 0.0005;
 
-/* ----------------------------------CAR 2 : PATH------------------------------------ */
+/* ------------------------------------------------------------------------------Car 2: Path */
 carPaths['car2'] = new THREE.CatmullRomCurve3([
   new THREE.Vector3(110, 5, 30),
   new THREE.Vector3(80, 5, 30),
@@ -653,7 +640,7 @@ carPaths['car2'] = new THREE.CatmullRomCurve3([
 carProgress['car2'] = 0;
 carSpeed['car2'] = 0.0004; // adjust speed if needed
 
-/* ----------------------------CAR 3 : PATH------------------------------------- */
+/* -----------------------------------------------------------------------------Car 3: Path */
 carPaths['car3'] = new THREE.CatmullRomCurve3([
   new THREE.Vector3(140, 5, 30),
   new THREE.Vector3(80, 5, 30), 
@@ -701,7 +688,7 @@ carPaths['car3'] = new THREE.CatmullRomCurve3([
 carProgress['car3'] = 0;
 carSpeed['car3'] = 0.0005; // adjust speed if needed
 
-/* ------------------------------------------CAR 4: PATH--------------------------------------------*/
+/* ---------------------------------------------------------------------------------Car 4: Path */
 carPaths['car4'] = new THREE.CatmullRomCurve3([
   new THREE.Vector3(-90, 5, 200),
   new THREE.Vector3(-90, 5, 128), 
@@ -742,7 +729,7 @@ carPaths['car4'] = new THREE.CatmullRomCurve3([
 carProgress['car4'] = 0;
 carSpeed['car4'] = 0.0005; // adjust speed if needed
 
-/* ------------------------LOAD CARS FUNCTION-------------------------------------- */
+/* -----------------------------------------------------------------------------------Load Cars - Asynchronously */
 async function loadCars() {
   for (let i = 1; i <= 4; i++) {
     const name = `car${i}`;
@@ -768,7 +755,7 @@ async function loadCars() {
   }
 }
 
-/* -----------------------------------------------------------INIT + ANIMATION------------------------------------------------------------------- */
+/* --------------------------------------------------------------------------------------INIT + ANIMATION------------------------------------------------------------------------- */
 async function init() {
   await loadDrones();
   await loadCars();
@@ -779,7 +766,7 @@ async function init() {
 
 init();
 
-// Animation function
+/* ----------------------------------------------------------------------------------Animation Function */
 function animate() {
   requestAnimationFrame(animate);
 
@@ -849,7 +836,7 @@ function animate() {
 
 animate();
 
-/* ------------------------------------------------------DAY / NIGHT TOGGLE------------------------------------------------------- */
+/* ---------------------------------------------------------------------------------Day / Night Toggle */
 document.getElementById('toggleDayNight').addEventListener('click', () => {
   isDay = !isDay;
 
@@ -884,14 +871,14 @@ document.getElementById('toggleDayNight').addEventListener('click', () => {
   updateWindowsEnvMaps();
 });
 
-/* -----------------------------RESPONSIVE RESIZING------------------------------------------- */
+/* --------------------------------------------------------------------------------Responsive Resizing */
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-/* ----------------------------CARS AND DRONES TOGGLE------------------------------------------ */
+/* -------------------------------------------------------------------------------Cars and Drones Toggle */
 document.getElementById('toggleCars').addEventListener('click', () => {
   carsRunning = !carsRunning;
   document.getElementById('toggleCars').textContent = carsRunning ? 'Stop Cars' : 'Start Cars';
@@ -902,7 +889,7 @@ document.getElementById('toggleDrones').addEventListener('click', () => {
   document.getElementById('toggleDrones').textContent = dronesRunning ? 'Stop Drones' : 'Start Drones';
 });
 
-/* ----------------------------------SHADING TOGGLE------------------------------------------ */
+/* --------------------------------------------------------------------------------Shading Toggle */
 function setActiveButton(buttonId) {
   document.querySelectorAll('.shading-btn').forEach(btn => {
     btn.classList.remove('active');
