@@ -12,26 +12,41 @@ import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { texture } from 'three/tsl';
+import { update } from 'three/examples/jsm/libs/tween.module.js';
 
-// Scene Setup
+
+/* ---------------------------------------------------SCENE SETUP------------------------------------------------------------------ */
+// Create scene
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 
 // Skybox setup
 let dayBox, nightBox;
-
 const rgbeLoader = new RGBELoader();
+const exrLoader = new EXRLoader();
+
+function setDayModeActive() {
+  sunlight.intensity = 1;
+  sunlight.color.set(0xffffff);
+  ambientLight.intensity = 0.5;
+
+  if (dayBox) {
+    scene.background = dayBox;
+    scene.environment = dayBox;
+  }
+  document.getElementById('toggleDayNight').textContent = 'Night Mode';
+  lights.forEach(light => light.visible = false);
+}
 
 rgbeLoader.load('textures/cubemap/skybox.hdr', (texture) => {
   texture.mapping = THREE.EquirectangularReflectionMapping;
   dayBox = texture;
   if (isDay) {
-    scene.background = dayBox;
-    scene.environment = dayBox;
+    setDayModeActive();
   }
 });
 
-const exrLoader = new EXRLoader();
 exrLoader.load('textures/cubemap/nightbox2.exr', (texture) => {
   texture.mapping = THREE.EquirectangularReflectionMapping;
   nightBox = texture;
@@ -93,12 +108,215 @@ scene.add(cameraHelper);
 // scene.add(new THREE.GridHelper(500, 50));
 // scene.add(new THREE.AxesHelper(500));
 
-let city = null;  // Global city reference
+/* -----------------------------------------------------------GLOBAL GROUPS AND FLAGS------------------------------------------------------------------------ */
+let isDay = true;
+const CITY = new THREE.Group();
+scene.add(CITY);
+const CARS = new THREE.Group();
+scene.add(CARS);
+
 let carsRunning = true;
 let dronesRunning = true;
-let isDay = true;
+let dailyPlanetPivot = null;
+let dailyPlanetLetters = [];
+const buildingEmissiveMeshes = [];
+const buildingMesh = [];
+const lights = [];
 
-// Load city and building models
+
+/* ---------------------------------TEXTURE MAPPING */
+const textureMap = {
+  'brick': {
+    map:'textures/brick.jpg',
+    normalMap: 'textures/brick_normal.jpg'},
+  'wood': {
+    map: 'textures/wood.jpg',
+    normalMap: 'textures/wood_normal.jpg'},
+  'road': {
+    map: 'textures/gravel.jpg',
+    normalMap: 'textures/gravel_normal.jpg'},
+  'grass': {
+    map: 'textures/grass.jpg',
+    normalMap: 'textures/grass_normal.jpg'},
+  'black-metal': {
+    map: 'textures/metal.jpg',
+    normalMap: 'textures/metal_normal.jpg'},
+  'grey-metal': {
+    map: 'textures/marble.jpg',
+    normalMap: 'textures/marble_normal.jpg'},
+  'concrete': {
+    map: 'textures/concrete.jpg',
+    normalMap: 'textures/concrete_normal.jpg'},
+};
+
+/* ------------------------------------------MODELS: BUILDINGS PROCESSING WITH OFFESETS, LIGHTS, EMISSIVE GRAB---------------------------------------------- */
+
+/* ------------------------------------------------------------APPLY TEXTURE / NORMAL / ENVMAP MAPPING */
+  function applyTextureMapping(model) {
+    const textureLoader = new THREE.TextureLoader();
+
+    model.traverse(child => {
+      if (child.isMesh) {
+        let mat = child.material;
+        let matName = mat.name;
+
+        if (Array.isArray(mat)) {
+          mat.forEach((m) => {
+            if (textureMap[m.name]) {
+              // Texture mapping
+              if (textureMap[m.name].map) {
+                m.map = textureLoader.load(textureMap[m.name].map);
+              }
+
+              // Normal (BUMP) mapping
+              if (textureMap[m.name].normalMap){
+                m.normalMap = textureLoader.load(textureMap[m.name].normalMap);
+                m.normalScale = new THREE.Vector2(1, 1); // Adjust if needed
+              }
+
+              // Environment mapping
+              if (textureMap) {
+                rgbeLoader.load(textureMap[m.name].envMap, (texture) => {
+                  envMap.mapping = THREE.EquirectangularReflectionMapping;
+                  m.envMap = envMap;
+                  m.envMap.intensity = 1; // Adjust if needed
+                  m.envMap.needsUpdate = true;
+                });
+              }
+              m.needsUpdate = true;
+            }
+          });
+          child.userData.originalMaterial = mat.map(m => m.clone());
+        }
+        else {
+          if (textureMap[matName]) {
+            // Texture map
+            if (textureMap[matName].map) {
+              mat.map = textureLoader.load(textureMap[matName].map);
+            }
+
+            // Normal (BUMP) map
+            if (textureMap[matName].normalMap) {
+              mat.normalMap = textureLoader.load(textureMap[matName].normalMap);
+              mat.normalScale = new THREE.Vector2(1, 1); // Adjust if needed
+            }
+
+            // Environment map
+            if (textureMap[matName].envMap) {
+              rgbeLoader.load(textureMap[matName].envMap, (texture) => {
+                envMap.mapping = THREE.EquirectangularReflectionMapping;
+                mat.envMap = envMap;
+                mat.envMap.intensity = 1; // Adjust if needed
+                mat.envMap.needsUpdate = true;
+              });
+            }
+            mat.needsUpdate = true;
+          }
+        }
+        // Set normal map if available
+        child.userData.originalMaterial = child.material.clone();
+      }
+    });
+  }
+
+/* -----------------------------------------------------------------PROCESS BUILDINGS */
+function processBuilding(model) {
+  model.traverse((child) => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+      child.material.side = THREE.DoubleSide;
+      buildingMesh.push(child);
+
+      // Track emissive properties/materials for day/night mode
+      if ('emissiveIntensity' in child.material) {
+        buildingEmissiveMeshes.push(child);
+      }
+    }
+  });
+}
+
+/* --------------------------------------------------------ADD DAILY PLANET NEON SIGN */
+function addDailyPlanetSign(buildingMesh) {
+  return new Promise((resolve, reject) => {
+    const focusPoint = buildingMesh.getObjectByName('focusPoint-DailyPlanet');
+    const pivot = new THREE.Object3D();
+
+    if (!focusPoint) {
+    console.warn('Focus Point not found.');
+    }
+  
+    const fontLoader = new FontLoader();
+    fontLoader.load('fonts/helvetiker_regular.typeface.json', (font) => {
+      const text = "DAILY PLANET";
+      const radius = 10;
+      const center = new THREE.Vector3();
+      
+      if (focusPoint) {
+        focusPoint.getWorldPosition(center);
+      } 
+      else {
+        buildingMesh.getWorldPosition(center);
+        center.y += 20;
+        center.z -= 30;
+      }
+
+      pivot.position.copy(center);
+
+      const lettersOnly = text.replace(/\s/g, '');
+      const angleStep = (Math.PI * 2) / lettersOnly.length;
+      
+      let letterIndex = 0;
+
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (char == ' ') continue;
+
+        const geometry = new TextGeometry(char, {
+          font: font, 
+          size:2.5, 
+          height: 0.02,
+          curveSegments: 12,
+          bevelEnabled: false,
+        });
+        geometry.center();
+
+        const material = new THREE.MeshStandardMaterial({
+          color: 0x00ffff,
+          emissive: 0x00ffff,
+          emissiveIntensity: 0,   // no glow during day mode
+          metalness: 0.5,
+          roughness: 0.2,
+          side: THREE.DoubleSide,
+        });
+
+        const letterMesh = new THREE.Mesh(geometry, material);
+        letterMesh.scale.z = 0.01;
+
+        // Calculate angle around circle
+        const angle = (lettersOnly.length - 1 - letterIndex) * angleStep;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        letterMesh.position.set(x, 0, z);
+
+        // Position letters to face outward from center
+        letterMesh.lookAt(new THREE.Vector3(x, 0, z).multiplyScalar(2));
+        // letterMesh.rotateY(Math.PI);
+
+        pivot.add(letterMesh);
+        dailyPlanetLetters.push(letterMesh);
+        letterIndex++;
+      }
+
+      buildingMesh.add(pivot);
+      resolve(pivot);
+    }, undefined,
+    (err) => reject(err)
+    );
+  });
+}
+
+/* ----------------------------------------------------LOAD CITY-------------------------------------------------------- */
 const loader = new GLTFLoader();
 
 const modelFiles = [
@@ -122,128 +340,187 @@ const modelFiles = [
   'park3.glb'
 ];
 
-// load each building model
+// Offset city for car paths
+const cityOffset = new THREE.Vector3(0, -18, 30);
+CITY.position.copy(cityOffset);
+
+/* --------------------------------------------LOADING PAGE */
+let modelsLoaded = 0;
+const totalModels = modelFiles.length;
+
+function updateLoadingProcess() {
+  const percent = Math.round((modelsLoaded / totalModels) * 100);
+  document.getElementById('loadingText').innerText = `Loading... ${percent}%`;
+
+  if (percent === 100) {
+    const overlay = document.getElementById('loadingOverlay');
+    overlay.style.opacity = 0;
+
+    setTimeout(() => overlay.remove(), 800);
+  }
+}
+
+// Load building models
 modelFiles.forEach(file => {
-  loader.load(`/models/${file}`, (gltf) => {
+  loader.load(`models/${file}`, (gltf) => {
     const model = gltf.scene;
 
-    // enable shadows and double-sided
+    let foundLights = false;
     model.traverse((child) => {
-      if (child.isMesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-        child.material.side = THREE.DoubleSide;
+      if (child.isLight) {
+        foundLights = true;
+        lights.push(child);
+        lights.visible = false;
       }
     });
-
-    scene.add(model);
-
-    // function for Daily Planet model text
-    if (file === 'dailyPlanet.glb') {
-      addDailyPlanetSign(model);
+    if (!foundLights) {
+      console.warn(`No lights found in model: ${file}`);
     }
+
+    processBuilding(model);
+    applyTextureMapping(model);
+    CITY.add(model);
+
+    // Locate empty for text rotation - Daily Planet Building
+    if (file === 'dailyPlanet.glb') {
+      addDailyPlanetSign(model).then((pivot) => {
+        dailyPlanetPivot = pivot;
+      }).catch(console.error);
+    }
+
+    modelsLoaded++;
+    updateLoadingProcess();
+
   }, undefined, (error) => {
-    console.error('Failed to load: ${file}', error);
+    console.error(`Failed to load: ${file}`, error);
   });
 });
 
-function addDailyPlanetSign(buildingMesh){
-  const fontLoader = new FontLoader();
-  fontLoader.load('/fonts/helvetiker_regular.typeface.json', (font) => {
-    const text = "DAILY PLANET";
-    const radius = 10;
-    const pivot = new THREE.Object3D();
+/* ---------------------------SET SHADING-------------------------------- */
+const textureCache = {};
+const textureLoader = new THREE.TextureLoader();
 
-    const center = new THREE.Vector3();
-    buildingMesh.getWorldPosition(center);
-    center.y += 20;
-    center.z -= 30;
-    pivot.position.copy(center);
+function getTexture(path) {
+  if (!path) return null;
+  if (!textureCache[path]) {
+    textureCache[path] = textureLoader.load(path);
+  }
+  return textureCache[path];
+}
 
-    const lettersOnly = text.replace(/\s/g, '');
-    const angleStep = (Math.PI * 2) / lettersOnly.length;
-    let letterIndex = 0;
+function setShading(type) {
+  scene.traverse(obj => {
+    if (obj.isMesh) {
+      let texture = obj.material.map;
+      if (obj.material.map && obj.material.map.image && obj.material.map.image.src) {
+        texture = getTexture(obj.material.map.image.src);
+      }
 
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      if (char == ' ') continue;
-
-      const geometry = new TextGeometry(char, {font, size:2.5, height: 0.02});
-      geometry.center();
-
-      const material = new THREE.MeshStandardMaterial({
-        color: 0xffff00,
-        emissive: 0xffff00,
-        emissiveIntensity: 2,
-        metalness: 0.5,
-        roughness: 0.2,
-        side: THREE.DoubleSide,
-      });
-
-      const letterMesh = new THREE.Mesh(geometry, material);
-      const angle = letterIndex * angleStep;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      letterMesh.position.set(x, 0, z);
-      letterMesh.lookAt(new THREE.Vector3(0, 0, 0));
-      letterMesh.rotateY(Math.PI);
-
-      pivot.add(letterMesh);
-      letterIndex++;
+      if (type === 'flat') {
+        obj.material.dispose();
+        obj.material = new THREE.MeshStandardMaterial({
+          color: obj.material.color,
+          flatShading: true,
+          metalness: obj.material.metalness ?? 0.5,
+          roughness: obj.material.roughness ?? 0.5,
+          emissive: obj.material.emissive ?? 0x000000,
+          emissiveIntensity: obj.material.emissiveIntensity ?? 0,
+          map: obj.material.map ?? null,
+          side: THREE.DoubleSide
+        });
+      }
+      if (type === 'gouraud') {
+        obj.material.dispose();
+        obj.material = new THREE.MeshLambertMaterial({
+          color: obj.material.color,
+          emissive: obj.material.emissive ?? 0x000000,
+          emissiveIntensity: obj.material.emissiveIntensity ?? 0,
+          map: texture ?? null,
+          side: THREE.DoubleSide
+        });
+      }
+      if (type === 'phong') {
+        obj.material.dispose();
+        obj.material = new THREE.MeshPhongMaterial({
+          color: obj.material.color,
+          shininess: 100,
+          specular: 0xffffff,
+          emissive: obj.material.emissive ?? 0x000000,
+          emissiveIntensity: obj.material.emissiveIntensity ?? 0x000000,
+          map: texture ?? null,
+          side: THREE.DoubleSide
+        });
+      }
+      if (type === 'normal') {
+        if (obj.userData.originalMaterial) {
+          obj.material.dispose();
+          obj.material = Array.isArray(obj.originalMaterial) ?
+            obj.userData.originalMaterial.map(mat => mat.clone()) :
+            obj.userData.originalMaterial.clone();
+          obj.material.needsUpdate = true;
+        }
+      }
+      obj.material.needsUpdate = true;
     }
-
-    buildingMesh.add(pivot);
   });
 }
 
+/* -----------------------------------------------------WINDOW ENVIRONEMNT REFLECTIONS */
+function updateWindowsEnvMaps() {
+  buildingMesh.forEach(mesh => {
+    let mat = mesh.material;
+    if (Array.isArray(mat)) {
+      mat.forEach(m => {
+        if (m.name && (m.name.toLowerCase().includes('window') || m.name.toLowerCase().includes('glass'))) {
+          m.envMap = scene.environment;
+          m.envMap.intensity = 1;
+          m.metalness = 1;
+          m.roughness = 0.05;
+          m.needsUpdate = true;
+          m.transparent = false;
+        }
+      });
+    }
+    else {
+      if (mat.name && (mat.name.toLowerCase().includes('window') || mat.name.toLowerCase().includes('glass'))) {
+        mat.envMap = scene.environment;
+        mat.envMap.intensity = 1;
+        mat.metalness = 1;
+        mat.roughness = 0.05;
+        mat.transparent = false;
+        mat.needsUpdate = true;
+
+        if (mat.name && (mat.name.toLowerCase().includes('forest1'))) {
+          if (isDay) {
+            mat.transparent = true;
+          }
+        }
+      }
+    }
+  });
+}
+
+/* ---------------------------------------DRONES----------------------------------------------- */
 const drones = {};
-const cars = {};
-const carMarkers = {};
 const rotatingDrones = [];
-const carPaths = {};
-const carProgress = {};
-const carSpeed = {};
-
-const droneControlState = {
-  drone1: true, // true means rotating
-  drone2: true,
-};
-
-// Model Loading - loads GLTF models asynchronously
-function loadModel(path) {
-  return new Promise((resolve, reject) => {
-    loader.load(path, (gltf) => resolve(gltf.scene), undefined, reject);
-  });
-}
-
-// Starting positions for drones
 const dronePositions = {
   drone1: new THREE.Vector3(80, 200, 100),
   drone2: new THREE.Vector3(-80, 180, 100),
   drone3: new THREE.Vector3(-90, 100, -80),
   drone4: new THREE.Vector3(90, 150, -80),
 };
-
-//Geometry marker for drones (Visual Aid)
-// for (const [name, pos] of Object.entries(dronePositions)) {
-//   const marker = new THREE.Mesh(
-//     new THREE.SphereGeometry(0.5, 8, 8),
-//     new THREE.MeshBasicMaterial({ color: 0x00ffff }) // cyan
-//   );
-//   marker.position.copy(pos);
-//   scene.add(marker);
-// }
-
-// Set drone radius around which to rotate
 const droneOrbitRadius = {
   drone1: 90,
   drone2: 80,
   drone3: 40,
   drone4: 20,
 };
+const droneControlState = {
+  drone1: true, // true means rotating
+  drone2: true,
+};
 
-
-// Load Drones
+// LOAD DRONES
 async function loadDrones() {
   for (let i = 1; i <= 4; i++) {
     const name = `drone${i}`;
@@ -276,7 +553,7 @@ async function loadDrones() {
     offsetHolder.add(model);
     pivot.add(offsetHolder);
 
-    scene.add(pivot);
+    CITY.add(pivot);
 
     drones[name] = pivot;
     pivot.userData.name = name;
@@ -284,7 +561,21 @@ async function loadDrones() {
   }
 }
 
-// The coordinates for the various markers for car1, first and last same to create looping path
+// MODEL LOADING - loads GLTF models asynchronously
+function loadModel(path) {
+  return new Promise((resolve, reject) => {
+    loader.load(path, (gltf) => resolve(gltf.scene), undefined, reject);
+  });
+}
+
+/* -----------------------------------------CARS---------------------------------------------------- */
+const cars = {};
+const carMarkers = {};
+const carPaths = {};
+const carProgress = {};
+const carSpeed = {};
+
+/* ---------------------------CAR 1 : PATH------------------------------- */
 carPaths['car1'] = new THREE.CatmullRomCurve3([
   new THREE.Vector3(80, 5, 30),  //start of roundabout
   new THREE.Vector3(-10, 5, 30),
@@ -324,25 +615,7 @@ carPaths['car1'] = new THREE.CatmullRomCurve3([
 carProgress['car1'] = 0;
 carSpeed['car1'] = 0.0005;
 
-// Debug points for car path (Visual Aid)
-// const car1DebugPoints = carPaths['car1'].getPoints(100);
-// const debugGeometry = new THREE.BufferGeometry().setFromPoints(car1DebugPoints);
-// const debugMaterial = new THREE.LineBasicMaterial({ color: 0xffff00 });
-// const debugLine = new THREE.Line(debugGeometry, debugMaterial);
-
-// Markers along the path of car1
-// const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-// const markerGeometry = new THREE.SphereGeometry(0.8, 8, 8);
-
-// for (let i = 0; i < car1DebugPoints.length; i += 5) { // Adjust step for density
-//   const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-//   marker.position.copy(car1DebugPoints[i]);
-//   scene.add(marker);
-// }
-
-// scene.add(debugLine);
-
-// The coordinates for the various markers for car 2, first and last the same to create a loop
+/* ----------------------------------CAR 2 : PATH------------------------------------ */
 carPaths['car2'] = new THREE.CatmullRomCurve3([
   new THREE.Vector3(110, 5, 30),
   new THREE.Vector3(80, 5, 30),
@@ -380,25 +653,7 @@ carPaths['car2'] = new THREE.CatmullRomCurve3([
 carProgress['car2'] = 0;
 carSpeed['car2'] = 0.0004; // adjust speed if needed
 
-// Debug points for the path of car 2 (Visual Aid)
-// const car2DebugPoints = carPaths['car2'].getPoints(100);
-// const car2DebugGeometry = new THREE.BufferGeometry().setFromPoints(car2DebugPoints);
-// const car2DebugMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 }); // green for car2
-// const car2DebugLine = new THREE.Line(car2DebugGeometry, car2DebugMaterial);
-
-// Markers along the path of car2 (Visual Aid)
-// const markerMaterial1 = new THREE.MeshBasicMaterial({ color: 0x0000ff }); // blue markers for car2
-// const markerGeometry1 = new THREE.SphereGeometry(0.5, 8, 8);
-
-// for (let i = 0; i < car2DebugPoints.length; i += 5) {
-//   const marker = new THREE.Mesh(markerGeometry1, markerMaterial1);
-//   marker.position.copy(car2DebugPoints[i]);
-//   scene.add(marker);
-// }
-
-// scene.add(car2DebugLine);
-
-// The coordinates for the various markers of car3, first and last are the same to create loop
+/* ----------------------------CAR 3 : PATH------------------------------------- */
 carPaths['car3'] = new THREE.CatmullRomCurve3([
   new THREE.Vector3(140, 5, 30),
   new THREE.Vector3(80, 5, 30), 
@@ -446,25 +701,7 @@ carPaths['car3'] = new THREE.CatmullRomCurve3([
 carProgress['car3'] = 0;
 carSpeed['car3'] = 0.0005; // adjust speed if needed
 
-// Debug points for the path of car3 (Visual Aid)
-// const car3DebugPoints = carPaths['car3'].getPoints(100);
-// const car3DebugGeometry = new THREE.BufferGeometry().setFromPoints(car3DebugPoints);
-// const car3DebugMaterial = new THREE.LineBasicMaterial({ color: 0xff00ff }); // bright magenta for car3
-// const car3DebugLine = new THREE.Line(car3DebugGeometry, car3DebugMaterial);
-
-// Markers along the path of car3 (Visual Aid)
-// const markerMaterial2 = new THREE.MeshBasicMaterial({ color: 0x800080 }); // deep purple for car3
-// const markerGeometry2 = new THREE.SphereGeometry(0.5, 8, 8);
-
-// for (let i = 0; i < car3DebugPoints.length; i += 5) {
-//   const marker = new THREE.Mesh(markerGeometry2, markerMaterial2);
-//   marker.position.copy(car3DebugPoints[i]);
-//   scene.add(marker);
-// }
-
-// scene.add(car3DebugLine);
-
-// The coordinates for the various markers for car4, first and last are the same to create loop
+/* ------------------------------------------CAR 4: PATH--------------------------------------------*/
 carPaths['car4'] = new THREE.CatmullRomCurve3([
   new THREE.Vector3(-90, 5, 200),
   new THREE.Vector3(-90, 5, 128), 
@@ -505,25 +742,7 @@ carPaths['car4'] = new THREE.CatmullRomCurve3([
 carProgress['car4'] = 0;
 carSpeed['car4'] = 0.0005; // adjust speed if needed
 
-// Debug points for path of car4 (Visual Aid)
-// const car4DebugPoints = carPaths['car4'].getPoints(100);
-// const car4DebugGeometry = new THREE.BufferGeometry().setFromPoints(car4DebugPoints);
-// const car4DebugMaterial = new THREE.LineBasicMaterial({ color: 0x00ffff }); // bright cyan for car4
-// const car4DebugLine = new THREE.Line(car4DebugGeometry, car4DebugMaterial);
-
-// Markers for the path of car4 (Visual Aid)
-// const markerMaterial3 = new THREE.MeshBasicMaterial({ color: 0xD7FF33 }); // deep cy for car4
-// const markerGeometry3 = new THREE.SphereGeometry(0.5, 8, 8);
-
-// for (let i = 0; i < car4DebugPoints.length; i += 5) {
-//   const marker = new THREE.Mesh(markerGeometry3, markerMaterial3);
-//   marker.position.copy(car4DebugPoints[i]);
-//   scene.add(marker);
-// }
-
-// scene.add(car4DebugLine);
-
-// Load car models
+/* ------------------------LOAD CARS FUNCTION-------------------------------------- */
 async function loadCars() {
   for (let i = 1; i <= 4; i++) {
     const name = `car${i}`;
@@ -544,17 +763,19 @@ async function loadCars() {
 
     const marker = carMarkers[name];
     group.position.copy(marker ? marker.position : new THREE.Vector3());
-    scene.add(group);
+    CARS.add(group);
     cars[name] = group;
   }
 }
 
-// Asynchronous function to initialize the 3D animated objects and ensure they are rendered before animation can start
+/* -----------------------------------------------------------INIT + ANIMATION------------------------------------------------------------------- */
 async function init() {
   await loadDrones();
   await loadCars();
+  setDayModeActive();
+  updateWindowsEnvMaps();
   console.log('All models loaded');
-}
+} 
 
 init();
 
@@ -562,10 +783,22 @@ init();
 function animate() {
   requestAnimationFrame(animate);
 
-  // Rotate text pivot around focus point if loaded
-  if (city && city.userData.textPivot) {
-    city.userData.textPivot.rotation.y += 0.01;
+  const emissiveTarget = isDay ? 0 : 2;
+
+  buildingEmissiveMeshes.forEach(mesh => {
+    mesh.material.emissiveIntensity += (emissiveTarget - mesh.material.emissiveIntensity) * 0.05;
+  });
+
+  // Rotate Daily Planet text
+  if (dailyPlanetPivot) {
+    dailyPlanetPivot.position.set(0, 90, 55);
+    dailyPlanetPivot.rotation.y += 0.01;
   }
+
+  dailyPlanetLetters.forEach(letter => {
+    const target = isDay ? 0 : 2;
+    letter.material.emissiveIntensity += (target - letter.material.emissiveIntensity) * 0.05;
+  });
 
   rotatingDrones.forEach((pivot) => {
     const name = pivot.userData.name;
@@ -616,24 +849,7 @@ function animate() {
 
 animate();
 
-// Responsive resizing
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// Add UI toggle buttons to the car and drone movements
-document.getElementById('toggleCars').addEventListener('click', () => {
-  carsRunning = !carsRunning;
-  document.getElementById('toggleCars').textContent = carsRunning ? 'Stop Cars' : 'Start Cars';
-});
-
-document.getElementById('toggleDrones').addEventListener('click', () => {
-  dronesRunning = !dronesRunning;
-  document.getElementById('toggleDrones').textContent = dronesRunning ? 'Stop Drones' : 'Start Drones';
-});
-
+/* ------------------------------------------------------DAY / NIGHT TOGGLE------------------------------------------------------- */
 document.getElementById('toggleDayNight').addEventListener('click', () => {
   isDay = !isDay;
 
@@ -648,16 +864,68 @@ document.getElementById('toggleDayNight').addEventListener('click', () => {
       scene.environment = dayBox;
     }
     document.getElementById('toggleDayNight').textContent = 'Night Mode';
-  } else {
+
+    lights.forEach(light => light.visible = false);
+  } 
+  else {
     // Night mode
-    sunlight.intensity = 1;
+    sunlight.intensity = 0;
     sunlight.color.set(0x666699);
-    ambientLight.intensity = 0.5;
+    ambientLight.intensity = 0.1;
 
     if (nightBox) {
       scene.background = nightBox;
       scene.environment = nightBox;
     }
     document.getElementById('toggleDayNight').textContent = 'Day Mode';
+
+    lights.forEach(light => light.visible = true);
   }
+  updateWindowsEnvMaps();
+});
+
+/* -----------------------------RESPONSIVE RESIZING------------------------------------------- */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ----------------------------CARS AND DRONES TOGGLE------------------------------------------ */
+document.getElementById('toggleCars').addEventListener('click', () => {
+  carsRunning = !carsRunning;
+  document.getElementById('toggleCars').textContent = carsRunning ? 'Stop Cars' : 'Start Cars';
+});
+
+document.getElementById('toggleDrones').addEventListener('click', () => {
+  dronesRunning = !dronesRunning;
+  document.getElementById('toggleDrones').textContent = dronesRunning ? 'Stop Drones' : 'Start Drones';
+});
+
+/* ----------------------------------SHADING TOGGLE------------------------------------------ */
+function setActiveButton(buttonId) {
+  document.querySelectorAll('.shading-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  document.getElementById(buttonId).classList.add('active');
+}
+
+document.getElementById('toggleFlat').addEventListener('click', () => {
+  setShading('flat');
+  setActiveButton('toggleFlat');
+});
+
+document.getElementById('toggleGouraud').addEventListener('click', () => {
+  setShading('gouraud');
+  setActiveButton('toggleGouraud');
+});
+
+document.getElementById('togglePhong').addEventListener('click', () => {
+  setShading('phong');
+  setActiveButton('togglePhong');
+});
+
+document.getElementById('toggleNormal').addEventListener('click', () => {
+  setShading('normal');
+  setActiveButton('toggleNormal');
 });

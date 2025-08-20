@@ -8,6 +8,26 @@
     <style>
       body {margin: 0; overflow: hidden; }
       canvas {display: block; }
+
+      .shading-btn.active {
+        background-color: #333;
+        color: white;
+      }
+
+      #loadingOverlay {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: fantasy;
+        font-size: 1.5rem;
+        z-index: 10;
+        opacity: 1;
+        transition: opacity 0.8s ease;
+      }
     </style>
   </head>
   <body>
@@ -15,7 +35,16 @@
     <div style="position: fixed; top: 10px; left: 10px; z-index: 10; background: #222; padding: 10px; border-radius: 5px; color: white;">
       <button id="toggleCars">Stop Cars</button>
       <button id="toggleDrones">Stop Drones</button>
-      <button id="toggleDayNight">Night Time</button>
+      <button id="toggleDayNight">Night Mode</button>
+      <button id="toggleFlat" class="shading-btn">Flat Shading</button>
+      <button id="toggleGouraud" class="shading-btn">Gouraud Shading</button>
+      <button id="togglePhong" class="shading-btn">Phong Shading</button>
+      <button id="toggleNormal">Normal Shading</button>
+    </div>
+
+    <!--LOADING OVERLAY-->
+    <div id="loadingOverlay">
+      <div id="loadingText">Loading...</div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
